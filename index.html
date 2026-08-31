@@ -353,10 +353,25 @@
   });
 
   let W, H;
+  let skyGrad = null, sunGrad = null;
+  function buildBackgroundGradients(){
+    skyGrad = ctx.createLinearGradient(0,0,0,H);
+    skyGrad.addColorStop(0, '#1a1035');
+    skyGrad.addColorStop(0.55, '#3a1550');
+    skyGrad.addColorStop(0.75, '#7a1f5e');
+    skyGrad.addColorStop(1, '#0a0518');
+
+    const sunY = H*0.32;
+    sunGrad = ctx.createRadialGradient(W/2, sunY, 10, W/2, sunY, 120);
+    sunGrad.addColorStop(0, '#ffde59');
+    sunGrad.addColorStop(0.5, '#ff6b35');
+    sunGrad.addColorStop(1, 'rgba(255,46,136,0)');
+  }
   function resize(){
     const wrap = document.getElementById('game-wrap');
     W = canvas.width = Math.min(window.innerWidth, 480);
     H = canvas.height = window.innerHeight;
+    buildBackgroundGradients();
   }
   resize();
   window.addEventListener('resize', resize);
@@ -455,35 +470,50 @@
   }
 
   // touch controls: tap left/right zones move lanes, mid zone tap=jump, swipe down = slide
+  // actions fire as soon as a gesture is recognized (touchmove), not on release, to minimize input lag
   let touchStartY = null, touchStartX = null;
   document.getElementById('zone-left').addEventListener('touchstart', () => { if(state==='playing') moveLane(-1); }, {passive:true});
   document.getElementById('zone-right').addEventListener('touchstart', () => { if(state==='playing') moveLane(1); }, {passive:true});
+
+  let midHandled = false;
   document.getElementById('zone-mid').addEventListener('touchstart', (e) => {
     touchStartY = e.touches[0].clientY;
+    midHandled = false;
   }, {passive:true});
-  document.getElementById('zone-mid').addEventListener('touchend', (e) => {
-    if(state !== 'playing') return;
-    const endY = e.changedTouches[0].clientY;
-    if(touchStartY !== null && endY - touchStartY > 40) doSlide();
-    else doJump();
+  document.getElementById('zone-mid').addEventListener('touchmove', (e) => {
+    if(state !== 'playing' || midHandled || touchStartY === null) return;
+    const dy = e.touches[0].clientY - touchStartY;
+    if(dy > 32){ doSlide(); midHandled = true; }
+  }, {passive:true});
+  document.getElementById('zone-mid').addEventListener('touchend', () => {
+    if(state === 'playing' && !midHandled) doJump(); // quick tap = jump, fires immediately on release
+    touchStartY = null;
   }, {passive:true});
 
   // whole-canvas swipe for extra forgiveness
+  let canvasHandled = false;
   canvas.addEventListener('touchstart', (e) => {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
+    canvasHandled = false;
   }, {passive:true});
-  canvas.addEventListener('touchend', (e) => {
-    if(touchStartX === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    const dy = e.changedTouches[0].clientY - touchStartY;
-    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30){
+  canvas.addEventListener('touchmove', (e) => {
+    if(state !== 'playing' || canvasHandled || touchStartX === null) return;
+    const dx = e.touches[0].clientX - touchStartX;
+    const dy = e.touches[0].clientY - touchStartY;
+    if(Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 24){
       moveLane(dx > 0 ? 1 : -1);
-    } else if(dy > 40){
+      canvasHandled = true;
+    } else if(dy > 30){
       doSlide();
-    } else if(dy < -40){
+      canvasHandled = true;
+    } else if(dy < -30){
       doJump();
+      canvasHandled = true;
     }
+  }, {passive:true});
+  canvas.addEventListener('touchend', () => {
+    if(state === 'playing' && !canvasHandled && touchStartX !== null) doJump(); // plain tap = jump
     touchStartX = null; touchStartY = null;
   }, {passive:true});
 
@@ -757,21 +787,12 @@
 
   // ---- drawing ----
   function drawBackground(){
-    // sky gradient
-    const grad = ctx.createLinearGradient(0,0,0,H);
-    grad.addColorStop(0, '#1a1035');
-    grad.addColorStop(0.55, '#3a1550');
-    grad.addColorStop(0.75, '#7a1f5e');
-    grad.addColorStop(1, '#0a0518');
-    ctx.fillStyle = grad;
+    // sky gradient (cached — rebuilt only on resize)
+    ctx.fillStyle = skyGrad;
     ctx.fillRect(0,0,W,H);
 
-    // sun
+    // sun (cached — rebuilt only on resize)
     const sunY = H*0.32;
-    const sunGrad = ctx.createRadialGradient(W/2, sunY, 10, W/2, sunY, 120);
-    sunGrad.addColorStop(0, '#ffde59');
-    sunGrad.addColorStop(0.5, '#ff6b35');
-    sunGrad.addColorStop(1, 'rgba(255,46,136,0)');
     ctx.fillStyle = sunGrad;
     ctx.beginPath();
     ctx.arc(W/2, sunY, 120, 0, Math.PI*2);
